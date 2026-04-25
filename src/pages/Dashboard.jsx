@@ -43,7 +43,7 @@ export default function Dashboard() {
     navigate("/");
   };
 
-  const sessionUrl = (id) => `${window.location.origin}/noter/${id}`;
+  const sessionUrl = (id) => `https://evalapp-iota.vercel.app/noter/${id}`;
 
   return (
     <div style={styles.container}>
