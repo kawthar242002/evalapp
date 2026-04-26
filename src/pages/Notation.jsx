@@ -51,10 +51,20 @@ export default function Notation() {
   const [step, setStep] = useState("identity");
 
   useEffect(() => {
-    getDoc(doc(db, "sessions", sessionId)).then((d) => {
-      if (d.exists()) setSession({ id: d.id, ...d.data() });
-    });
-  }, [sessionId]);
+  getDoc(doc(db, "sessions", sessionId)).then((d) => {
+    if (d.exists()) {
+      const data = d.data();
+      setSession({ 
+        id: d.id, 
+        ...data,
+        students: data.students || [],
+        notes: data.notes || []
+      });
+    }
+  }).catch((err) => {
+    console.error("Erreur chargement session:", err);
+  });
+}, [sessionId]);
 
   const total = Object.values(notes).reduce((a, b) => a + b, 0);
 
