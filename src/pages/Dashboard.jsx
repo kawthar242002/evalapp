@@ -1,255 +1,317 @@
 import { useState, useEffect } from "react";
-import { useParams } from "react-router-dom";
-import { doc, getDoc, updateDoc, arrayUnion } from "firebase/firestore";
-import { db } from "../firebase";
+import { collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc } from "firebase/firestore";
+import { db, auth } from "../firebase";
+import { signOut } from "firebase/auth";
+import { useNavigate } from "react-router-dom";
+import { QRCodeSVG } from "qrcode.react";
 
-const GRILLE = [
-  {
-    section: "A — Contenu et langage verbal",
-    sousSections: [
-      {
-        titre: "I / Compétence pragmatique",
-        criteres: [
-          { label: "Respect de la consigne / tâche : contenu + temps", max: 2 },
-          { label: "Structure de l'exposé", max: 2 },
-          { label: "Qualité des arguments", max: 2 },
-          { label: "Illustration : pertinence des exemples", max: 1 },
-          { label: "Cohérence et cohésion", max: 1 },
-        ],
-      },
-      {
-        titre: "II / Compétence sociolinguistique",
-        criteres: [
-          { label: "Adéquation sociolinguistique", max: 4 },
-        ],
-      },
-      {
-        titre: "III / Compétence linguistique",
-        criteres: [
-          { label: "Lexique", max: 2 },
-          { label: "Morphosyntaxe", max: 2 },
-          { label: "Orthographe", max: 2 },
-          { label: "Formes verbales", max: 2 },
-        ],
-      },
-    ],
-  },
-  {
-    section: "B — Langage non verbal",
-    sousSections: [
-      {
-        titre: "I / Langage du corps",
-        criteres: [
-          { label: "Posture", max: 1 },
-          { label: "Occupation de l'espace", max: 1 },
-          { label: "Déplacements", max: 1 },
-          { label: "Gestes", max: 2 },
-          { label: "Regard / contact visuel", max: 2 },
-          { label: "Mimique / Expressions du visage", max: 2 },
-          { label: "Coiffure", max: 1 },
-          { label: "Tenue vestimentaire", max: 1 },
-        ],
-      },
-      {
-        titre: "II / Langage paraverbal",
-        criteres: [
-          { label: "Volume", max: 2 },
-          { label: "Débit", max: 2 },
-          { label: "Intonation", max: 2 },
-          { label: "Ton professionnel", max: 2 },
-          { label: "Articulation", max: 1 },
-          { label: "Gestion des pauses", max: 1 },
-        ],
-      },
-    ],
-  },
-  {
-    section: "C — Support visuel",
-    sousSections: [
-      {
-        titre: "",
-        criteres: [
-          { label: "Charte graphique et cohérence visuelle", max: 2 },
-          { label: "Structure formelle et organisation du diaporama", max: 2 },
-          { label: "Lisibilité typographique", max: 2 },
-          { label: "Gestion de l'espace visuel", max: 2 },
-          { label: "Qualité des visuels scientifiques et des illustrations", max: 2 },
-        ],
-      },
-    ],
-  },
+const CRITERES = [
+  { label: "Respect de la consigne / tâche : contenu + temps", max: 2 },
+  { label: "Structure de l'exposé", max: 2 },
+  { label: "Qualité des arguments", max: 2 },
+  { label: "Illustration : pertinence des exemples", max: 1 },
+  { label: "Cohérence et cohésion", max: 1 },
+  { label: "Adéquation sociolinguistique", max: 4 },
+  { label: "Lexique", max: 2 },
+  { label: "Morphosyntaxe", max: 2 },
+  { label: "Orthographe", max: 2 },
+  { label: "Formes verbales", max: 2 },
+  { label: "Posture", max: 1 },
+  { label: "Occupation de l'espace", max: 1 },
+  { label: "Déplacements", max: 1 },
+  { label: "Gestes", max: 2 },
+  { label: "Regard / contact visuel", max: 2 },
+  { label: "Mimique / Expressions du visage", max: 2 },
+  { label: "Coiffure", max: 1 },
+  { label: "Tenue vestimentaire", max: 1 },
+  { label: "Volume", max: 2 },
+  { label: "Débit", max: 2 },
+  { label: "Intonation", max: 2 },
+  { label: "Ton professionnel", max: 2 },
+  { label: "Articulation", max: 1 },
+  { label: "Gestion des pauses", max: 1 },
+  { label: "Charte graphique et cohérence visuelle", max: 2 },
+  { label: "Structure formelle et organisation du diaporama", max: 2 },
+  { label: "Lisibilité typographique", max: 2 },
+  { label: "Gestion de l'espace visuel", max: 2 },
+  { label: "Qualité des visuels scientifiques et des illustrations", max: 2 },
 ];
 
-export default function Notation() {
-  const { sessionId } = useParams();
-  const [session, setSession] = useState(null);
-  const [evaluateur, setEvaluateur] = useState("");
-  const [etudiantChoisi, setEtudiantChoisi] = useState("");
-  const [notes, setNotes] = useState({});
-  const [submitted, setSubmitted] = useState(false);
-  const [step, setStep] = useState("identity");
+export default function Dashboard() {
+  const [sessions, setSessions] = useState([]);
+  const [newStudent, setNewStudent] = useState("");
+  const [sessionName, setSessionName] = useState("");
+  const [activeSession, setActiveSession] = useState(null);
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
-    getDoc(doc(db, "sessions", sessionId)).then((d) => {
-      if (d.exists()) setSession({ id: d.id, ...d.data() });
+    const unsub = onSnapshot(collection(db, "sessions"), (snap) => {
+      const data = snap.docs.map((d) => {
+        const d2 = d.data();
+        return {
+          id: d.id,
+          name: d2.name || "",
+          students: d2.students || [],
+          notes: d2.notes || [],
+        };
+      });
+      setSessions(data);
     });
-  }, [sessionId]);
+    return unsub;
+  }, []);
 
-  const total = Object.values(notes).reduce((a, b) => a + b, 0);
-
-  const setNote = (key, val) => setNotes((prev) => ({ ...prev, [key]: parseFloat(val) }));
-
-  const handleSubmit = async () => {
-    const entry = {
-      evaluateur,
-      etudiant: etudiantChoisi,
-      notes,
-      total,
-      date: new Date().toISOString(),
-    };
-    await updateDoc(doc(db, "sessions", sessionId), {
-      notes: arrayUnion(entry),
+  const createSession = async () => {
+    if (!sessionName.trim()) return;
+    const ref = await addDoc(collection(db, "sessions"), {
+      name: sessionName,
+      students: [],
+      notes: [],
+      createdAt: new Date().toISOString(),
     });
-    setSubmitted(true);
+    setSessionName("");
+    setActiveSession(ref.id);
   };
 
-  if (!session) return <div style={styles.center}>Chargement...</div>;
+  const deleteSession = async (id) => {
+    if (!confirm("Supprimer cette session ?")) return;
+    await deleteDoc(doc(db, "sessions", id));
+  };
 
-  if (submitted) return (
-    <div style={styles.center}>
-      <div style={styles.successCard}>
-        <div style={styles.checkmark}>✓</div>
-        <h2 style={styles.successTitle}>Note envoyée !</h2>
-        <p style={styles.successSub}>Total : <strong>{total}/50</strong></p>
-        <p style={styles.successSub}>Merci pour ton évaluation.</p>
-      </div>
-    </div>
-  );
+  const addStudent = async () => {
+    if (!newStudent.trim() || !activeSession) return;
+    const session = sessions.find((s) => s.id === activeSession);
+    const updated = [...(session.students || []), newStudent.trim()];
+    await updateDoc(doc(db, "sessions", activeSession), { students: updated });
+    setNewStudent("");
+  };
 
-  if (step === "identity") return (
-    <div style={styles.center}>
-      <div style={styles.card}>
-        <h1 style={styles.title}>Eval<span style={styles.accent}>Pro</span></h1>
-        <p style={styles.sub}>Session : <strong>{session.name}</strong></p>
-        <input
-          style={styles.input}
-          placeholder="Ton prénom"
-          value={evaluateur}
-          onChange={(e) => setEvaluateur(e.target.value)}
-        />
-        <p style={{ fontSize: "14px", margin: "1rem 0 8px", fontWeight: "500" }}>Tu notes :</p>
-        <div style={styles.studentGrid}>
-          {(session.students || []).map((s) => (
-            <div
-              key={s}
-              style={{ ...styles.studentOption, ...(etudiantChoisi === s ? styles.studentSelected : {}) }}
-              onClick={() => setEtudiantChoisi(s)}
-            >
-              {s}
-            </div>
-          ))}
+  const removeStudent = async (sessionId, studentName) => {
+    if (!confirm(`Supprimer ${studentName} ?`)) return;
+    const session = sessions.find((s) => s.id === sessionId);
+    const updated = (session.students || []).filter((s) => s !== studentName);
+    const updatedNotes = (session.notes || []).filter((n) => n.etudiant !== studentName);
+    await updateDoc(doc(db, "sessions", sessionId), { students: updated, notes: updatedNotes });
+  };
+
+  const handleLogout = async () => {
+    await signOut(auth);
+    navigate("/");
+  };
+
+  const sessionUrl = (id) => `https://evalapp-iota.vercel.app/noter/${id}`;
+
+  const getStudentStats = (session, student) => {
+    const votes = (session.notes || []).filter((n) => n.etudiant === student);
+    if (!votes.length) return null;
+    const critStats = CRITERES.map((c) => {
+      const vals = votes.map((v) => (v.notes && v.notes[c.label] != null ? Number(v.notes[c.label]) : 0));
+      const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+      return { ...c, avg: avg.toFixed(1) };
+    });
+    const totalAvg = (votes.reduce((a, b) => a + Number(b.total || 0), 0) / votes.length).toFixed(1);
+    return { votes, critStats, totalAvg };
+  };
+
+  if (selectedStudent) {
+    const { sessionId, sessionName: sName, student } = selectedStudent;
+    const session = sessions.find((s) => s.id === sessionId);
+    const stats = session ? getStudentStats(session, student) : null;
+
+    return (
+      <div style={styles.container}>
+        <div style={styles.header}>
+          <button onClick={() => setSelectedStudent(null)} style={styles.backBtn}>← Retour</button>
+          <h1 style={styles.title}>Eval<span style={styles.accent}>Pro</span></h1>
         </div>
-        <button
-          style={{ ...styles.btn, opacity: evaluateur && etudiantChoisi ? 1 : 0.5 }}
-          onClick={() => evaluateur && etudiantChoisi && setStep("noter")}
-        >
-          Commencer la notation →
-        </button>
+
+        <div style={styles.studentHeader}>
+          <h2 style={styles.studentName}>{student}</h2>
+          <span style={styles.sessionBadge}>{sName}</span>
+        </div>
+
+        {!stats ? (
+          <div style={styles.emptyBox}>Aucun vote reçu pour cet étudiant.</div>
+        ) : (
+          <>
+            <div style={styles.totalCard}>
+              <span style={styles.totalLabel}>Moyenne générale</span>
+              <span style={styles.totalNum}>{stats.totalAvg}<span style={styles.totalSub}>/50</span></span>
+              <span style={styles.voteCount}>{stats.votes.length} vote(s)</span>
+            </div>
+
+            <div style={styles.card}>
+              <h3 style={styles.sectionTitle}>Votes reçus</h3>
+              {stats.votes.map((v, i) => (
+                <div key={i} style={styles.voteRow}>
+                  <span style={styles.evaluateurName}>{v.evaluateur}</span>
+                  <span style={styles.voteTotal}>{Number(v.total || 0).toFixed(1)}/50</span>
+                  <span style={styles.voteDate}>{new Date(v.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</span>
+                </div>
+              ))}
+            </div>
+
+            <div style={styles.card}>
+              <h3 style={styles.sectionTitle}>Moyenne par critère</h3>
+              {[
+                { label: "A — Contenu verbal", range: [0, 10] },
+                { label: "B — Langage non verbal", range: [10, 24] },
+                { label: "C — Support visuel", range: [24, 29] },
+              ].map((sec) => (
+                <div key={sec.label} style={{ marginBottom: "1.5rem" }}>
+                  <p style={styles.sectionLabel}>{sec.label}</p>
+                  {stats.critStats.slice(sec.range[0], sec.range[1]).map((c) => (
+                    <div key={c.label} style={styles.critRow}>
+                      <span style={styles.critLabel}>{c.label}</span>
+                      <div style={styles.barWrap}>
+                        <div style={{ ...styles.bar, width: `${(c.avg / c.max) * 100}%` }} />
+                      </div>
+                      <span style={styles.critVal}>{c.avg}/{c.max}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
-    </div>
-  );
+    );
+  }
 
   return (
-    <div style={styles.page}>
-      <div style={styles.topBar}>
-        <span style={styles.title2}>Eval<span style={styles.accent}>Pro</span></span>
-        <span style={styles.totalBadge}>{total.toFixed(1)} / 50</span>
+    <div style={styles.container}>
+      <div style={styles.header}>
+        <h1 style={styles.title}>Eval<span style={styles.accent}>Pro</span></h1>
+        <button onClick={handleLogout} style={styles.logoutBtn}>Déconnexion</button>
       </div>
-      <p style={styles.notingLabel}>Tu notes : <strong>{etudiantChoisi}</strong></p>
 
-      {GRILLE.map((part) => (
-        <div key={part.section} style={styles.sectionCard}>
-          <h2 style={styles.sectionTitle}>{part.section}</h2>
-          {part.sousSections.map((ss) => (
-            <div key={ss.titre} style={styles.sousSection}>
-              {ss.titre ? <p style={styles.sousTitre}>{ss.titre}</p> : null}
-              {ss.criteres.map((c) => {
-                const val = notes[c.label] ?? 0;
-                const steps = [];
-                for (let v = 0; v <= c.max; v += 0.5) steps.push(parseFloat(v.toFixed(1)));
-                return (
-                  <div key={c.label} style={styles.critRow}>
-                    <div style={styles.critTop}>
-                      <span style={styles.critLabel}>{c.label}</span>
-                      <span style={styles.critVal}>{val.toFixed(1)} / {c.max}</span>
-                    </div>
-                    <div style={styles.sliderWrap}>
-                      <input
-                        type="range"
-                        min={0}
-                        max={c.max}
-                        step={0.5}
-                        value={val}
-                        onChange={(e) => setNote(c.label, e.target.value)}
-                        style={styles.slider}
-                      />
-                      <div style={styles.sliderLabels}>
-                        <span>0</span>
-                        <span>{c.max}</span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+      <div style={styles.section}>
+        <h2 style={styles.sectionTitle}>Créer une session</h2>
+        <div style={styles.row}>
+          <input
+            style={styles.input}
+            placeholder="Nom de la session ex: Groupe A"
+            value={sessionName}
+            onChange={(e) => setSessionName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && createSession()}
+          />
+          <button style={styles.btn} onClick={createSession}>Créer</button>
+        </div>
+      </div>
+
+      {sessions.map((session) => (
+        <div key={session.id} style={styles.card}>
+          <div style={styles.cardHeader}>
+            <h3 style={styles.cardTitle}>{session.name}</h3>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <span style={styles.badge}>{(session.students || []).length} étudiant(s)</span>
+              <button onClick={() => deleteSession(session.id)} style={styles.deleteBtn}>Supprimer</button>
             </div>
-          ))}
+          </div>
+
+          <div style={styles.row}>
+            <input
+              style={styles.input}
+              placeholder="Nom de l'étudiant"
+              value={activeSession === session.id ? newStudent : ""}
+              onChange={(e) => { setActiveSession(session.id); setNewStudent(e.target.value); }}
+              onKeyDown={(e) => e.key === "Enter" && addStudent()}
+            />
+            <button style={styles.btn} onClick={() => { setActiveSession(session.id); addStudent(); }}>Ajouter</button>
+          </div>
+
+          <div style={styles.studentList}>
+            {(session.students || []).map((s, i) => (
+              <div key={i} style={styles.studentChip}>
+                <span style={styles.studentClickable} onClick={() => setSelectedStudent({ sessionId: session.id, sessionName: session.name, student: s })}>
+                  {s}
+                </span>
+                <button onClick={() => removeStudent(session.id, s)} style={styles.removeBtn}>×</button>
+              </div>
+            ))}
+          </div>
+
+          <div style={styles.qrSection}>
+            <QRCodeSVG value={sessionUrl(session.id)} size={120} />
+            <div style={styles.qrInfo}>
+              <p style={styles.qrLabel}>Lien pour les étudiants</p>
+              <p style={styles.qrUrl}>{sessionUrl(session.id)}</p>
+            </div>
+          </div>
+
+          <div style={styles.notesSection}>
+            <h4 style={styles.notesTitle}>Notes reçues</h4>
+            {(session.students || []).map((student) => {
+              const notes = (session.notes || []).filter((n) => n.etudiant === student);
+              const avg = notes.length
+                ? (notes.reduce((a, b) => a + Number(b.total || 0), 0) / notes.length).toFixed(1)
+                : null;
+              return (
+                <div key={student} style={{ ...styles.noteRow, cursor: "pointer" }}
+                  onClick={() => setSelectedStudent({ sessionId: session.id, sessionName: session.name, student })}>
+                  <span style={styles.studentNameNote}>{student}</span>
+                  <span style={styles.noteVal}>{avg ? `Moyenne : ${avg}/50` : "En attente..."}</span>
+                  <span style={styles.noteCount}>{notes.length} vote(s)</span>
+                  <span style={styles.arrow}>→</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       ))}
-
-      <div style={styles.submitSection}>
-        <div style={styles.totalBar}>
-          <span style={{ fontSize: "14px", color: "#666" }}>Note totale</span>
-          <span style={styles.totalNum}>{total.toFixed(1)} <span style={{ fontSize: "16px", color: "#aaa" }}>/ 50</span></span>
-        </div>
-        <button style={styles.submitBtn} onClick={handleSubmit}>Valider et envoyer ✓</button>
-      </div>
     </div>
   );
 }
 
 const styles = {
-  center: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f5f4fe", padding: "1rem" },
-  card: { background: "white", padding: "2rem", borderRadius: "16px", width: "100%", maxWidth: "420px", border: "0.5px solid #e0dff8", display: "flex", flexDirection: "column", gap: "12px" },
-  title: { fontSize: "26px", fontWeight: "500", margin: 0 },
+  container: { maxWidth: "800px", margin: "0 auto", padding: "2rem 1rem" },
+  header: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2rem" },
+  title: { fontSize: "24px", fontWeight: "500" },
   accent: { color: "#534AB7" },
-  sub: { fontSize: "14px", color: "#666", margin: 0 },
-  input: { padding: "12px 14px", borderRadius: "8px", border: "0.5px solid #ddd", fontSize: "14px" },
-  studentGrid: { display: "flex", flexWrap: "wrap", gap: "8px" },
-  studentOption: { padding: "8px 16px", borderRadius: "20px", border: "0.5px solid #ddd", cursor: "pointer", fontSize: "14px" },
-  studentSelected: { background: "#534AB7", color: "white", border: "0.5px solid #534AB7" },
-  btn: { padding: "13px", borderRadius: "8px", background: "#534AB7", color: "white", border: "none", cursor: "pointer", fontWeight: "500", fontSize: "15px" },
-  page: { maxWidth: "640px", margin: "0 auto", padding: "1rem 1rem 2rem" },
-  topBar: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" },
-  title2: { fontSize: "20px", fontWeight: "500" },
-  totalBadge: { background: "#EEEDFE", color: "#3C3489", padding: "6px 16px", borderRadius: "20px", fontWeight: "500" },
-  notingLabel: { fontSize: "14px", color: "#666", marginBottom: "1.5rem" },
-  sectionCard: { background: "white", borderRadius: "12px", border: "0.5px solid #e8e8e8", padding: "1.25rem", marginBottom: "1rem" },
-  sectionTitle: { fontSize: "15px", fontWeight: "500", color: "#534AB7", marginBottom: "1rem" },
-  sousSection: { marginBottom: "1rem" },
-  sousTitre: { fontSize: "12px", fontWeight: "500", color: "#aaa", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "10px" },
-  critRow: { marginBottom: "1rem", paddingBottom: "1rem", borderBottom: "0.5px solid #f5f5f5" },
-  critTop: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" },
-  critLabel: { fontSize: "13px", color: "#444", flex: 1, paddingRight: "8px" },
-  critVal: { fontSize: "13px", fontWeight: "500", color: "#534AB7", minWidth: "48px", textAlign: "right" },
-  sliderWrap: { width: "100%" },
-  slider: { width: "100%", accentColor: "#534AB7", height: "4px", cursor: "pointer" },
-  sliderLabels: { display: "flex", justifyContent: "space-between", fontSize: "11px", color: "#bbb", marginTop: "2px" },
-  submitSection: { marginTop: "1.5rem", marginBottom: "3rem" },
-  totalBar: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1rem 1.25rem", background: "#f5f4fe", borderRadius: "12px", marginBottom: "12px" },
-  totalNum: { fontSize: "28px", fontWeight: "500", color: "#534AB7" },
-  submitBtn: { width: "100%", padding: "14px", borderRadius: "10px", background: "#534AB7", color: "white", border: "none", fontSize: "16px", fontWeight: "500", cursor: "pointer" },
-  successCard: { background: "white", padding: "3rem 2rem", borderRadius: "16px", textAlign: "center", border: "0.5px solid #e0dff8" },
-  checkmark: { fontSize: "48px", color: "#1D9E75", marginBottom: "1rem" },
-  successTitle: { fontSize: "22px", fontWeight: "500", margin: "0 0 8px" },
-  successSub: { color: "#666", fontSize: "15px" },
+  logoutBtn: { background: "none", border: "0.5px solid #ddd", padding: "8px 16px", borderRadius: "8px", cursor: "pointer", fontSize: "13px" },
+  backBtn: { background: "none", border: "0.5px solid #ddd", padding: "8px 16px", borderRadius: "8px", cursor: "pointer", fontSize: "13px" },
+  section: { marginBottom: "2rem" },
+  sectionTitle: { fontSize: "15px", fontWeight: "500", marginBottom: "1rem", color: "#534AB7" },
+  sectionLabel: { fontSize: "13px", fontWeight: "500", color: "#888", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.5px" },
+  row: { display: "flex", gap: "10px", marginBottom: "1rem" },
+  input: { flex: 1, padding: "11px 14px", borderRadius: "8px", border: "0.5px solid #ddd", fontSize: "14px" },
+  btn: { padding: "11px 20px", borderRadius: "8px", background: "#534AB7", color: "white", border: "none", cursor: "pointer", fontWeight: "500", whiteSpace: "nowrap" },
+  deleteBtn: { background: "none", border: "0.5px solid #E24B4A", color: "#E24B4A", padding: "6px 12px", borderRadius: "8px", cursor: "pointer", fontSize: "12px" },
+  card: { background: "white", borderRadius: "16px", border: "0.5px solid #e8e8e8", padding: "1.5rem", marginBottom: "1.5rem" },
+  cardHeader: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" },
+  cardTitle: { fontSize: "16px", fontWeight: "500" },
+  badge: { background: "#EEEDFE", color: "#3C3489", fontSize: "12px", padding: "4px 12px", borderRadius: "20px" },
+  studentList: { display: "flex", flexWrap: "wrap", gap: "8px", margin: "1rem 0" },
+  studentChip: { display: "flex", alignItems: "center", background: "#f5f4fe", borderRadius: "20px", overflow: "hidden" },
+  studentClickable: { color: "#534AB7", padding: "4px 10px", fontSize: "13px", cursor: "pointer" },
+  removeBtn: { background: "none", border: "none", color: "#aaa", cursor: "pointer", padding: "4px 8px", fontSize: "14px" },
+  qrSection: { display: "flex", gap: "1.5rem", alignItems: "center", padding: "1rem", background: "#fafafa", borderRadius: "12px", marginBottom: "1rem" },
+  qrInfo: { flex: 1 },
+  qrLabel: { fontSize: "13px", color: "#888", margin: "0 0 4px" },
+  qrUrl: { fontSize: "12px", color: "#534AB7", wordBreak: "break-all", margin: 0 },
+  notesSection: { borderTop: "0.5px solid #f0f0f0", paddingTop: "1rem" },
+  notesTitle: { fontSize: "14px", fontWeight: "500", marginBottom: "10px" },
+  noteRow: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "0.5px solid #f5f5f5" },
+  studentNameNote: { fontSize: "14px", flex: 1 },
+  noteVal: { fontSize: "14px", color: "#534AB7", fontWeight: "500" },
+  noteCount: { fontSize: "12px", color: "#aaa", marginLeft: "12px" },
+  arrow: { color: "#534AB7", marginLeft: "8px" },
+  studentHeader: { display: "flex", alignItems: "center", gap: "12px", marginBottom: "1.5rem" },
+  studentName: { fontSize: "22px", fontWeight: "500" },
+  sessionBadge: { background: "#EEEDFE", color: "#3C3489", fontSize: "12px", padding: "4px 12px", borderRadius: "20px" },
+  totalCard: { display: "flex", alignItems: "center", justifyContent: "space-between", background: "#534AB7", color: "white", borderRadius: "16px", padding: "1.5rem", marginBottom: "1rem" },
+  totalLabel: { fontSize: "14px", opacity: 0.8 },
+  totalNum: { fontSize: "36px", fontWeight: "500" },
+  totalSub: { fontSize: "16px", opacity: 0.7 },
+  voteCount: { fontSize: "13px", opacity: 0.8 },
+  voteRow: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "0.5px solid #f5f5f5" },
+  evaluateurName: { flex: 1, fontSize: "14px" },
+  voteTotal: { fontSize: "14px", fontWeight: "500", color: "#534AB7" },
+  voteDate: { fontSize: "12px", color: "#aaa", marginLeft: "12px" },
+  critRow: { display: "flex", alignItems: "center", gap: "10px", padding: "6px 0" },
+  critLabel: { flex: 1, fontSize: "12px", color: "#555" },
+  barWrap: { width: "120px", height: "6px", background: "#EEEDFE", borderRadius: "999px", overflow: "hidden" },
+  bar: { height: "100%", background: "#534AB7", borderRadius: "999px", transition: "width 0.3s" },
+  critVal: { fontSize: "12px", color: "#534AB7", minWidth: "36px", textAlign: "right" },
+  emptyBox: { background: "white", borderRadius: "16px", padding: "2rem", textAlign: "center", color: "#aaa", border: "0.5px solid #e8e8e8" },
 };
